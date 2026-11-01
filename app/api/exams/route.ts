@@ -1,6 +1,7 @@
 import { isTeacher, unauthorized } from "@/lib/auth";
 import { createExam, listExams, listSubs } from "@/lib/exams";
 import { backend } from "@/lib/store";
+import { aiStatus } from "@/lib/ai";
 
 export async function GET() {
   if (!(await isTeacher())) return unauthorized();
@@ -18,7 +19,7 @@ export async function GET() {
       updatedAt: e.updatedAt,
     })),
   );
-  return Response.json({ exams: rows, storage: backend() });
+  return Response.json({ exams: rows, storage: backend(), ai: aiStatus() });
 }
 
 export async function POST(req: Request) {

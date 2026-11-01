@@ -27,6 +27,7 @@ export default function Teacher() {
   const [err, setErr] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [storage, setStorage] = useState("");
+  const [ai, setAi] = useState<{ enabled: boolean; provider?: string; model?: string } | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,6 +39,7 @@ export default function Teacher() {
     const j = await r.json();
     setRows(j.exams);
     setStorage(j.storage);
+    setAi(j.ai || null);
     setAuthed(true);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -156,8 +158,12 @@ export default function Teacher() {
             </tbody>
           </table>
         )}
-        {storage === "cache" && (
-          <p className="mt-4 rounded bg-amber-50 p-2 text-xs text-amber-700">提示：当前为原型存储模式（Vercel Runtime Cache），数据可能在长时间后被清理；编辑页会自动在本浏览器保留一份备份。</p>
+        {ai && !ai.enabled && (
+          <p className="mt-4 rounded bg-amber-50 p-2 text-xs text-amber-700">提示：AI 功能未启用（服务器未配置大模型 API Key）。目前可手动录入题目与答案，客观题自动判分，主观题需老师人工给分；AI 解析试卷、主观题阅卷和解题过程生成暂不可用。</p>
+        )}
+        {ai?.enabled && <p className="mt-4 text-xs text-slate-400">AI：{ai.provider} / {ai.model}</p>}
+        {storage === "file" && (
+          <p className="mt-4 text-xs text-slate-400">数据保存在本机服务器（本地 JSON 文件存储）。</p>
         )}
       </section>
     </main>

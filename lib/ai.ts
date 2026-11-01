@@ -1,19 +1,70 @@
 import "server-only";
-import { generateText, Output, gateway, isStepCount, type UserContent } from "ai";
+import { generateText, Output, isStepCount, type UserContent, type LanguageModel } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { Question, Solution, QResult } from "./types";
 
+// ---------- LLM provider (no Vercel dependency) ----------
+// Any OpenAI-compatible API works. Configure in .env.local:
+//   AI_API_KEY=...            (or OPENAI_API_KEY / XAI_API_KEY / DEEPSEEK_API_KEY / DASHSCOPE_API_KEY)
+//   AI_BASE_URL=...           (default chosen from which key is set)
+//   AI_MODEL=...              (default chosen from which key is set)
+//   AI_SOLVE_MODEL=...        (optional, model for solutions)
+//   AI_WEB_SEARCH=1           (OpenAI official API only: use its web_search tool)
+type Cfg = { apiKey: string; baseURL: string; model: string; name: string };
+
+function cfg(): Cfg | null {
+  const e = process.env;
+  const pick: [string | undefined, string, string, string][] = [
+    [e.AI_API_KEY, e.AI_BASE_URL || "https://api.openai.com/v1", "gpt-4.1-mini", "custom"],
+    [e.OPENAI_API_KEY, e.OPENAI_BASE_URL || "https://api.openai.com/v1", "gpt-4.1-mini", "openai"],
+    [e.XAI_API_KEY, "https://api.x.ai/v1", "grok-4-fast", "xai"],
+    [e.DEEPSEEK_API_KEY, "https://api.deepseek.com/v1", "deepseek-chat", "deepseek"],
+    [e.DASHSCOPE_API_KEY, "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", "qwen"],
+  ];
+  for (const [key, base, model, name] of pick) {
+    if (key) return { apiKey: key, baseURL: e.AI_BASE_URL || base, model: e.AI_MODEL || model, name };
+  }
+  return null;
+}
+
+export function aiStatus() {
+  const c = cfg();
+  return c ? { enabled: true, provider: c.name, model: c.model } : { enabled: false };
+}
+
+export class AIDisabledError extends Error {
+  constructor() {
+    super("AI_DISABLED");
+  }
+}
+
+function provider() {
+  const c = cfg();
+  if (!c) throw new AIDisabledError();
+  return { c, p: createOpenAI({ apiKey: c.apiKey, baseURL: c.baseURL }) };
+}
+function model(solve = false): LanguageModel {
+  const { c, p } = provider();
+  const id = solve ? process.env.AI_SOLVE_MODEL || c.model : c.model;
+  // OpenAI official -> Responses API; other compatible vendors -> Chat Completions
+  return /api\.openai\.com/.test(c.baseURL) ? p.responses(id) : p.chat(id);
+}
+function searchTools() {
+  const { c, p } = provider();
+  if (!/api\.openai\.com/.test(c.baseURL) || process.env.AI_WEB_SEARCH === "0") return null;
+  return { web_search: p.tools.webSearch({}) };
+}
+
 export function aiErrorMessage(e: unknown) {
+  if (e instanceof AIDisabledError)
+    return "AI 功能未启用：服务器未配置大模型 API Key（在 .env.local 中设置 AI_API_KEY 等，见 README）。";
   const m = e instanceof Error ? e.message : String(e);
-  if (/credit card/i.test(m))
-    return "AI 服务尚未开通：需要在 Vercel 账户的 AI Gateway 页面绑定信用卡以解锁免费额度（https://vercel.com/dashboard/ai）。";
-  if (/insufficient|quota|budget/i.test(m)) return "AI 额度不足，请在 Vercel AI Gateway 充值或稍后再试。";
+  if (/401|invalid.*key|unauthori/i.test(m)) return "AI 调用失败：API Key 无效。";
+  if (/insufficient|quota|budget|balance/i.test(m)) return "AI 额度不足，请充值或稍后再试。";
   if (/rate/i.test(m)) return "AI 服务繁忙（限流），请稍后再试。";
   return "AI 调用失败：" + m.slice(0, 200);
 }
-
-export const MODEL = process.env.AI_MODEL || "google/gemini-3.8-flash";
-export const SOLVE_MODEL = process.env.AI_SOLVE_MODEL || MODEL;
 
 const MATH_RULE =
   "所有数学公式使用 LaTeX，行内用 $...$，独立公式用 $$...$$。不要使用 \\( \\) 或 \\[ \\]。";
@@ -60,7 +111,7 @@ export async function parseExam(files: FileInput[], text: string) {
   if (text.trim()) content.push({ type: "text", text: `试卷文本：\n${text}` });
 
   const { output } = await generateText({
-    model: MODEL,
+    model: model(),
     output: Output.object({ schema: ParsedSchema }),
     messages: [{ role: "user", content }],
   });
@@ -91,7 +142,7 @@ export async function gradeWithLLM(
     student_answer: student || "(未作答)",
   }));
   const { output } = await generateText({
-    model: MODEL,
+    model: model(),
     output: Output.object({ schema: GradeSchema }),
     prompt: `你是严谨公正的阅卷老师。请根据参考答案为每道题的学生作答评分。
 规则：
@@ -146,16 +197,17 @@ export async function solveQuestion(q: Question, useSearch = true): Promise<Solu
     : "";
   const ref = q.answer ? `\n教师给出的参考答案：${q.answer}（请以此为准进行讲解；若明显有误请指出）` : "";
   const prompt = `请为学生讲解下面这道题，给出正确答案和清晰的分步解题过程。
-${useSearch ? "先调用 perplexity_search 工具在网上搜索这道题或相关知识点的解答（用中文关键词），参考可靠来源；然后独立验算，给出你确认正确的解答。" : ""}
+${useSearch && cfg() && searchTools() ? "先调用 web_search 工具在网上搜索这道题或相关知识点的解答（用中文关键词），参考可靠来源；然后独立验算，给出你确认正确的解答。" : ""}
 要求：用简体中文；步骤清晰、适合中学生理解；${MATH_RULE}
 题型：${q.type}
 题目：${q.text}${opts}${ref}`;
 
-  if (useSearch) {
+  const tools = useSearch ? searchTools() : null;
+  if (tools) {
     try {
       const r = await generateText({
-        model: SOLVE_MODEL,
-        tools: { perplexity_search: gateway.tools.perplexitySearch({ maxResults: 5 }) },
+        model: model(true),
+        tools,
         stopWhen: isStepCount(4),
         output: Output.object({ schema: SolSchema }),
         prompt,
@@ -167,7 +219,7 @@ ${useSearch ? "先调用 perplexity_search 工具在网上搜索这道题或相�
     }
   }
   const r = await generateText({
-    model: SOLVE_MODEL,
+    model: model(true),
     output: Output.object({ schema: SolSchema }),
     prompt,
   });

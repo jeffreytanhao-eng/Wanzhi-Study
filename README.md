@@ -34,3 +34,11 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## 本地运行（不依赖 Vercel）
+- 数据：本地 JSON 文件，目录 `DATA_DIR`（默认 `./data`）。
+- 配置：`.env.local` —— `TEACHER_PASSCODE`（教师口令）、`APP_SECRET`、`DATA_DIR`。
+- AI（可选，OpenAI 兼容接口）：在 `.env.local` 设置 `AI_API_KEY` + `AI_BASE_URL` + `AI_MODEL`，
+  或直接设置 `OPENAI_API_KEY` / `XAI_API_KEY` / `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` 之一。
+  使用 OpenAI 官方接口时自动启用 web_search 联网搜索解答。修改后需重启服务。
+- 构建与启动：`npm run build && setsid nohup ./start-local.sh > logs/server.log 2>&1 &`（端口 3000）
