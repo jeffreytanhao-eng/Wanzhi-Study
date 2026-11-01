@@ -5,8 +5,9 @@ import Md from "@/components/Md";
 import { QTYPE_LABEL, letter, type Question, type Solution, type Submission } from "@/lib/types";
 
 type Data = {
+  teacher?: boolean;
   submission: Submission;
-  exam: { id: string; title: string; questions: Question[]; solutions: Record<string, Solution>; solutionsStatus: string };
+  exam: { id: string; title: string; questions: Question[]; solutions: Record<string, Solution>; solutionsStatus: string; solutionsError?: string };
 };
 
 export default function Result({ params }: { params: Promise<{ sid: string }> }) {
@@ -33,8 +34,10 @@ export default function Result({ params }: { params: Promise<{ sid: string }> })
         if (!triggered.current) {
           triggered.current = true;
           fetch(`/api/exams/${j.exam.id}/solutions?sid=${sid}`, { method: "POST" }).then(() => load());
+          timer = setTimeout(tick, 5000);
+          return;
         }
-        timer = setTimeout(tick, 5000);
+        if (j.exam.solutionsStatus === "running") timer = setTimeout(tick, 5000);
       }
     };
     tick();
@@ -46,7 +49,12 @@ export default function Result({ params }: { params: Promise<{ sid: string }> })
   const { submission: s, exam } = d;
   if (!s.submittedAt) return <main className="p-10 text-center">该答卷尚未提交。</main>;
   const pct = s.max ? (s.total! / s.max) * 100 : 0;
-  const pending = exam.questions.some((q) => !exam.solutions?.[q.id]);
+  const missing = exam.questions.some((q) => !exam.solutions?.[q.id]);
+  const pending = missing && exam.solutionsStatus !== "error";
+  const override = async (qid: string, score: number) => {
+    await fetch(`/api/submissions/${sid}`, { method: "PATCH", body: JSON.stringify({ qid, score }) });
+    load();
+  };
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -68,6 +76,8 @@ export default function Result({ params }: { params: Promise<{ sid: string }> })
           })}
         </div>
       </div>
+      {missing && exam.solutionsStatus === "error" && <p className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-700">⚠️ 部分解题过程暂未生成。{exam.solutionsError}</p>}
+      {d.teacher && <p className="mt-4 rounded bg-slate-100 p-3 text-sm text-slate-600">👩‍🏫 教师模式：可在每题右上角修改得分（人工复核）。</p>}
       {pending && <p className="mt-4 rounded bg-blue-50 p-3 text-sm text-blue-700">⏳ 正在联网搜索并生成解题过程，约需 30–90 秒，页面会自动刷新…</p>}
 
       <div className="mt-4 space-y-4">
@@ -81,7 +91,15 @@ export default function Result({ params }: { params: Promise<{ sid: string }> })
               <div className="mb-2 flex items-center gap-2 text-sm">
                 <span className="rounded bg-slate-800 px-2 py-0.5 font-semibold text-white">{i + 1}</span>
                 <span className="text-slate-500">{QTYPE_LABEL[q.type]}</span>
-                <span className={`ml-auto rounded px-2 py-0.5 font-semibold ${r?.correct ? "bg-green-100 text-green-700" : (r?.score || 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>
+                {d.teacher && r && (
+                  <span className="ml-auto flex items-center gap-1 text-xs text-slate-500">
+                    改分
+                    <input type="number" step={0.5} min={0} max={q.score} defaultValue={r.score} className="input w-16 px-1 py-0.5"
+                      onBlur={(e) => { const v = Number(e.target.value); if (v !== r.score) override(q.id, v); }} />
+                    {r.manual && <span className="text-blue-600">已人工复核</span>}
+                  </span>
+                )}
+                <span className={`${d.teacher ? "" : "ml-auto "}rounded px-2 py-0.5 font-semibold ${r?.correct ? "bg-green-100 text-green-700" : (r?.score || 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>
                   {r?.score ?? 0} / {q.score} 分
                 </span>
               </div>
@@ -100,7 +118,7 @@ export default function Result({ params }: { params: Promise<{ sid: string }> })
               )}
               <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
                 <div className="rounded bg-slate-50 p-2"><div className="text-xs text-slate-500">你的答案</div>{mine ? <Md>{mine}</Md> : <span className="text-slate-400">未作答</span>}</div>
-                <div className="rounded bg-green-50 p-2"><div className="text-xs text-green-700">正确答案</div>{correctAns ? <Md>{correctAns}</Md> : <span className="text-slate-400">生成中…</span>}</div>
+                <div className="rounded bg-green-50 p-2"><div className="text-xs text-green-700">正确答案</div>{correctAns ? <Md>{correctAns}</Md> : <span className="text-slate-400">{pending ? "生成中…" : "老师未提供"}</span>}</div>
               </div>
               {r?.feedback && <p className="mt-2 text-sm text-slate-600">📝 阅卷评语：{r.feedback}</p>}
               <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
@@ -118,7 +136,7 @@ export default function Result({ params }: { params: Promise<{ sid: string }> })
                     )}
                     {!sol.searched && <div className="mt-2 text-xs text-slate-400">（由 AI 推理生成）</div>}
                   </>
-                ) : <span className="text-sm text-slate-400">生成中…</span>}
+                ) : <span className="text-sm text-slate-400">{pending ? "生成中…" : "暂无（AI 服务不可用）"}</span>}
               </div>
             </div>
           );

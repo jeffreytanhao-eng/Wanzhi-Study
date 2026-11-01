@@ -1,6 +1,6 @@
 import "server-only";
 import type { Exam, QResult, Submission } from "./types";
-import { gradeWithLLM } from "./ai";
+import { aiErrorMessage, gradeWithLLM } from "./ai";
 
 const norm = (s: string) =>
   (s || "")
@@ -58,20 +58,26 @@ export async function gradeSubmission(exam: Exam, sub: Submission) {
 
   if (pending.length) {
     let llm: Awaited<ReturnType<typeof gradeWithLLM>> = {};
+    let why = "";
     try {
       llm = await gradeWithLLM(pending);
     } catch (e) {
       console.error("LLM grading failed", e);
+      why = aiErrorMessage(e);
     }
     for (const { q } of pending) {
       const g = llm[q.id];
       results[q.id] = g
         ? { score: g.score, max: q.score, correct: g.score >= q.score, feedback: g.feedback }
-        : { score: 0, max: q.score, correct: false, feedback: "AI 评分失败，请老师人工复核" };
+        : { score: 0, max: q.score, correct: false, feedback: `AI 阅卷暂不可用，待老师人工复核。${why ? "（" + why + "）" : ""}` };
     }
   }
 
   const total = Object.values(results).reduce((s, r) => s + r.score, 0);
   const max = exam.questions.reduce((s, q) => s + q.score, 0);
   return { results, total: Math.round(total * 10) / 10, max };
+}
+
+export function totals(results: Record<string, QResult>) {
+  return Math.round(Object.values(results).reduce((s, r) => s + r.score, 0) * 10) / 10;
 }

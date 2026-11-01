@@ -2,7 +2,7 @@ import "server-only";
 import { customAlphabet } from "nanoid";
 import { kvGet, kvSet, listAdd } from "./store";
 import type { Exam, Solution, Submission } from "./types";
-import { solveQuestion } from "./ai";
+import { aiErrorMessage, solveQuestion } from "./ai";
 
 export const newId = customAlphabet("abcdefghijkmnpqrstuvwxyz23456789", 12);
 export const newCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
@@ -70,18 +70,21 @@ export async function ensureSolutions(examId: string, force = false) {
   exam.solutionsStatus = "running";
   exam.solutionsUpdatedAt = Date.now();
   await saveExam(exam);
+  let lastErr = "";
   try {
     await pool(todo, 4, async (q) => {
       try {
         sols[q.id] = await solveQuestion(q, true);
       } catch (e) {
         console.error("solve failed", q.id, e);
+        lastErr = aiErrorMessage(e);
       }
     });
     const fresh = (await getExam(examId)) || exam;
     fresh.solutions = { ...(fresh.solutions || {}), ...sols };
     fresh.solutionsStatus = exam.questions.every((q) => fresh.solutions?.[q.id]) ? "done" : "error";
     fresh.solutionsUpdatedAt = Date.now();
+    fresh.solutionsError = fresh.solutionsStatus === "error" ? lastErr : "";
     await saveExam(fresh);
     return fresh;
   } catch (e) {

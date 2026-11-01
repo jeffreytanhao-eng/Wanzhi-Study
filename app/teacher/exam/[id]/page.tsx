@@ -133,7 +133,7 @@ export default function Editor({ params }: { params: Promise<{ id: string }> }) 
             <span className="font-semibold">答案与解析：</span>
             {exam.solutionsStatus === "done" ? <span className="text-green-700">已生成（AI 联网搜索 + 推理）</span>
               : exam.solutionsStatus === "running" || solBusy ? <span className="text-blue-600">生成中，请稍候（约 30–90 秒）…</span>
-              : exam.solutionsStatus === "error" ? <span className="text-amber-700">部分题目生成失败，可重试</span>
+              : exam.solutionsStatus === "error" ? <span className="text-amber-700">部分题目生成失败，可重试。{exam.solutionsError}</span>
               : <span className="text-slate-500">尚未生成（发布时自动生成，学生交卷后可查看）</span>}
           </div>
           <div className="flex gap-2">

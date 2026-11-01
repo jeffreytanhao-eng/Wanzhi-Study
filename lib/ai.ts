@@ -3,6 +3,15 @@ import { generateText, Output, gateway, isStepCount, type UserContent } from "ai
 import { z } from "zod";
 import type { Question, Solution, QResult } from "./types";
 
+export function aiErrorMessage(e: unknown) {
+  const m = e instanceof Error ? e.message : String(e);
+  if (/credit card/i.test(m))
+    return "AI 服务尚未开通：需要在 Vercel 账户的 AI Gateway 页面绑定信用卡以解锁免费额度（https://vercel.com/dashboard/ai）。";
+  if (/insufficient|quota|budget/i.test(m)) return "AI 额度不足，请在 Vercel AI Gateway 充值或稍后再试。";
+  if (/rate/i.test(m)) return "AI 服务繁忙（限流），请稍后再试。";
+  return "AI 调用失败：" + m.slice(0, 200);
+}
+
 export const MODEL = process.env.AI_MODEL || "google/gemini-3.8-flash";
 export const SOLVE_MODEL = process.env.AI_SOLVE_MODEL || MODEL;
 

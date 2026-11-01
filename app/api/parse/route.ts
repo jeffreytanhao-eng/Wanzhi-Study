@@ -1,5 +1,5 @@
 import { isTeacher, unauthorized } from "@/lib/auth";
-import { parseExam, type FileInput } from "@/lib/ai";
+import { aiErrorMessage, parseExam, type FileInput } from "@/lib/ai";
 import { createExam, newId } from "@/lib/exams";
 import type { Question } from "@/lib/types";
 
@@ -36,6 +36,6 @@ export async function POST(req: Request) {
     return Response.json({ id: exam.id });
   } catch (e) {
     console.error(e);
-    return Response.json({ error: "解析失败：" + (e instanceof Error ? e.message : String(e)) }, { status: 500 });
+    return Response.json({ error: "解析失败。" + aiErrorMessage(e) }, { status: 500 });
   }
 }

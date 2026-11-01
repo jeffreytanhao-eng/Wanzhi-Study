@@ -33,6 +33,7 @@ export interface Exam {
   solutions?: Record<string, Solution>;
   solutionsStatus?: "none" | "running" | "done" | "error";
   solutionsUpdatedAt?: number;
+  solutionsError?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -42,6 +43,7 @@ export interface QResult {
   max: number;
   correct: boolean;
   feedback: string;
+  manual?: boolean; // overridden by teacher
 }
 
 export interface Submission {

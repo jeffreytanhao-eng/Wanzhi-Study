@@ -1,5 +1,6 @@
+import { isTeacher, unauthorized } from "@/lib/auth";
 import { getExam, getSub, saveSub } from "@/lib/exams";
-import { gradeSubmission } from "@/lib/grade";
+import { gradeSubmission, totals } from "@/lib/grade";
 import { toPublic } from "@/lib/types";
 
 export const maxDuration = 300;
@@ -14,6 +15,7 @@ export async function GET(_: Request, ctx: RouteContext<"/api/submissions/[sid]"
     return Response.json({ submission: s, exam: { id: e.id, title: e.title, durationMin: e.durationMin, questions: e.questions.map(toPublic) } });
   }
   return Response.json({
+    teacher: await isTeacher(),
     submission: s,
     exam: {
       id: e.id,
@@ -22,6 +24,7 @@ export async function GET(_: Request, ctx: RouteContext<"/api/submissions/[sid]"
       questions: e.questions,
       solutions: e.solutions || {},
       solutionsStatus: e.solutionsStatus || "none",
+      solutionsError: e.solutionsError || "",
     },
   });
 }
@@ -45,4 +48,21 @@ export async function POST(req: Request, ctx: RouteContext<"/api/submissions/[si
   s.max = g.max;
   await saveSub(s);
   return Response.json({ ok: true, total: s.total, max: s.max });
+}
+
+// Teacher manual score override: { qid, score, feedback? }
+export async function PATCH(req: Request, ctx: RouteContext<"/api/submissions/[sid]">) {
+  if (!(await isTeacher())) return unauthorized();
+  const { sid } = await ctx.params;
+  const { qid, score, feedback } = await req.json();
+  const s = await getSub(sid);
+  if (!s || !s.results?.[qid]) return Response.json({ error: "记录不存在" }, { status: 404 });
+  const r = s.results[qid];
+  r.score = Math.max(0, Math.min(r.max, Number(score) || 0));
+  r.correct = r.score >= r.max;
+  r.manual = true;
+  if (typeof feedback === "string" && feedback.trim()) r.feedback = feedback.trim();
+  s.total = totals(s.results);
+  await saveSub(s);
+  return Response.json({ ok: true, total: s.total });
 }
