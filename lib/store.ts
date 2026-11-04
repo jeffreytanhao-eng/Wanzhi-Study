@@ -55,10 +55,64 @@ export async function kvSet(key: string, value: unknown): Promise<void> {
   await withLock(key, () => writeRaw(key, value));
 }
 
+export async function kvDel(key: string): Promise<void> {
+  await withLock(key, async () => {
+    try {
+      await fs.unlink(fileFor(key));
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+  });
+}
+
 export async function listAdd(key: string, item: string) {
   await withLock(key, async () => {
     const arr = (await readRaw<string[]>(key)) || [];
     if (!arr.includes(item)) arr.unshift(item);
     await writeRaw(key, arr);
   });
+}
+
+export async function listRemove(key: string, item: string) {
+  await withLock(key, async () => {
+    const arr = ((await readRaw<string[]>(key)) || []).filter((x) => x !== item);
+    await writeRaw(key, arr);
+  });
+}
+
+/** Absolute path for binary uploads of an exam. */
+export function examFilesDir(examId: string) {
+  const safe = examId.replace(/[^a-zA-Z0-9_\-]/g, "_");
+  return path.join(DATA_DIR, "files", safe);
+}
+
+export async function saveExamBinary(examId: string, filename: string, data: Buffer) {
+  const dir = examFilesDir(examId);
+  await fs.mkdir(dir, { recursive: true });
+  const base = path.basename(filename).replace(/[^\w.\u4e00-\u9fff\- ()\[\]]+/g, "_") || "upload.bin";
+  // avoid collisions
+  let storedAs = base;
+  let i = 1;
+  while (true) {
+    try {
+      await fs.access(path.join(dir, storedAs));
+      const ext = path.extname(base);
+      const stem = path.basename(base, ext);
+      storedAs = `${stem}_${i}${ext}`;
+      i++;
+    } catch {
+      break;
+    }
+  }
+  await fs.writeFile(path.join(dir, storedAs), data);
+  return storedAs;
+}
+
+export async function removeExamFiles(examId: string) {
+  const dir = examFilesDir(examId);
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
 }

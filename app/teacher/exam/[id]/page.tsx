@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import Md from "@/components/Md";
-import { QTYPE_LABEL, letter, type Exam, type QType, type Question, type Submission } from "@/lib/types";
+import { DIFF_LABEL, QTYPE_LABEL, ROLE_LABEL, letter, type ContentKind, type Difficulty, type Exam, type KnowledgePoint, type QRole, type QType, type Question, type Submission } from "@/lib/types";
 
 const rid = () => Math.random().toString(36).slice(2, 14);
 
@@ -88,26 +88,87 @@ export default function Editor({ params }: { params: Promise<{ id: string }> }) 
           {exam.status === "published" ? (
             <button className="btn btn-danger" onClick={() => publish(false)}>停止发布</button>
           ) : (
-            <button className="btn btn-green" disabled={!exam.questions.length} onClick={() => publish(true)}>发布考试</button>
+            <button className="btn btn-green" disabled={!exam.questions.length} onClick={() => publish(true)}>{(exam.kind || "exam") === "courseware" ? "发布课件" : "发布考试"}</button>
           )}
         </div>
       </div>
       {err && <p className="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-700">{err} 点击「保存」即可恢复到服务器。</p>}
 
-      <section className="card mt-4 grid gap-4 md:grid-cols-[1fr_160px_160px]">
+      {!!exam.sourceFiles?.length && (
+        <section className="card mt-4 border-amber-200 bg-amber-50">
+          <div className="text-sm font-semibold text-amber-900">已上传原卷（可对照手动录入题目）</div>
+          <ul className="mt-2 space-y-1 text-sm">
+            {exam.sourceFiles.map((f) => (
+              <li key={f.storedAs}>
+                <a className="text-blue-700 underline" href={`/api/exams/${id}/source/${encodeURIComponent(f.storedAs)}`} target="_blank" rel="noreferrer">
+                  {f.name}
+                </a>
+                <span className="ml-2 text-amber-800/70">({(f.size / 1024).toFixed(0)} KB)</span>
+              </li>
+            ))}
+          </ul>
+          {!exam.questions.length && (
+            <p className="mt-2 text-xs text-amber-800">状态：已上传待录入 — 请在下方添加题目后保存并发布。</p>
+          )}
+        </section>
+      )}
+
+      <section className="card mt-4 grid gap-4 md:grid-cols-[1fr_140px_160px_160px]">
         <div>
-          <label className="label">试卷标题</label>
+          <label className="label">标题</label>
           <input className="input text-lg font-semibold" value={exam.title} onChange={(e) => upd({ title: e.target.value })} />
         </div>
         <div>
-          <label className="label">考试时长（分钟）</label>
-          <input className="input" type="number" min={1} value={exam.durationMin} onChange={(e) => upd({ durationMin: Number(e.target.value) })} />
+          <label className="label">类型</label>
+          <select className="input" value={exam.kind || "exam"} onChange={(e) => {
+            const kind = e.target.value as ContentKind;
+            upd({ kind, durationMin: kind === "courseware" ? 0 : (exam.durationMin || 60), showAnswersToStudents: kind === "courseware" ? (exam.showAnswersToStudents ?? true) : false });
+          }}>
+            <option value="exam">考试</option>
+            <option value="courseware">课件</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">{(exam.kind || "exam") === "courseware" ? "时长（课件可填 0）" : "考试时长（分钟）"}</label>
+          <input className="input" type="number" min={0} value={exam.durationMin} onChange={(e) => upd({ durationMin: Number(e.target.value) })} />
         </div>
         <div>
           <label className="label">总分（自动计算）</label>
           <div className="input bg-slate-50 font-semibold">{total} 分 · {exam.questions.length} 题</div>
         </div>
       </section>
+
+      {(exam.kind || "exam") === "courseware" && (
+        <section className="card mt-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={!!exam.showAnswersToStudents} onChange={(e) => upd({ showAnswersToStudents: e.target.checked })} />
+            允许学生查看答案与解析
+          </label>
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">知识点（{(exam.knowledgePoints || []).length}）</h3>
+              <button className="btn btn-ghost" type="button" onClick={() => upd({ knowledgePoints: [...(exam.knowledgePoints || []), { id: rid(), title: "新知识点", content: "" }] })}>+ 添加知识点</button>
+            </div>
+            <div className="mt-3 space-y-3">
+              {(exam.knowledgePoints || []).map((k, i) => (
+                <div key={k.id} className="rounded-lg border border-violet-100 bg-violet-50/40 p-3">
+                  <div className="flex gap-2">
+                    <input className="input font-semibold" value={k.title} onChange={(e) => {
+                      const knowledgePoints = (exam.knowledgePoints || []).map((x) => x.id === k.id ? { ...x, title: e.target.value } : x);
+                      upd({ knowledgePoints });
+                    }} />
+                    <button className="btn btn-danger px-2" type="button" onClick={() => upd({ knowledgePoints: (exam.knowledgePoints || []).filter((x) => x.id !== k.id) })}>删除</button>
+                  </div>
+                  <textarea className="input mt-2 h-28 font-mono text-sm" value={k.content} onChange={(e) => {
+                    const knowledgePoints = (exam.knowledgePoints || []).map((x) => x.id === k.id ? { ...x, content: e.target.value } : x);
+                    upd({ knowledgePoints });
+                  }} placeholder="知识点正文（Markdown / LaTeX）" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {exam.status === "published" && (
         <section className="card mt-4 border-green-200 bg-green-50">
@@ -117,7 +178,7 @@ export default function Editor({ params }: { params: Promise<{ id: string }> }) 
               <div className="font-mono text-3xl font-bold tracking-widest text-green-800">{exam.code}</div>
             </div>
             <div className="flex-1">
-              <div className="text-xs text-green-700">学生答题链接</div>
+              <div className="text-xs text-green-700">{(exam.kind || "exam") === "courseware" ? "学生学习链接" : "学生答题链接"}</div>
               <div className="flex gap-2">
                 <input readOnly className="input font-mono text-sm" value={link} />
                 <button className="btn btn-ghost" onClick={() => { navigator.clipboard.writeText(link); setMsg("链接已复制"); }}>复制</button>
@@ -222,6 +283,14 @@ function QuestionEditor({ q, idx, sol, onChange, onDelete, onMove }: {
         }}>
           {(Object.keys(QTYPE_LABEL) as QType[]).map((t) => <option key={t} value={t}>{QTYPE_LABEL[t]}</option>)}
         </select>
+        <select className="input w-auto" value={q.role || ""} onChange={(e) => onChange({ role: (e.target.value || undefined) as QRole | undefined })}>
+          <option value="">角色</option>
+          {(Object.keys(ROLE_LABEL) as QRole[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+        </select>
+        <select className="input w-auto" value={q.difficulty || ""} onChange={(e) => onChange({ difficulty: (e.target.value || "") as Difficulty })}>
+          <option value="">难度</option>
+          {(Object.keys(DIFF_LABEL) as Exclude<Difficulty, "">[]).map((d) => <option key={d} value={d}>{DIFF_LABEL[d]}</option>)}
+        </select>
         <label className="ml-2 text-sm text-slate-600">分值</label>
         <input className="input w-20" type="number" min={0} step={0.5} value={q.score} onChange={(e) => onChange({ score: Number(e.target.value) })} />
         <span className="text-sm text-slate-600">分</span>
@@ -266,6 +335,10 @@ function QuestionEditor({ q, idx, sol, onChange, onDelete, onMove }: {
           <textarea className="input h-20 font-mono text-sm" value={q.answer} onChange={(e) => onChange({ answer: e.target.value })} placeholder="留空则由 AI 自动求解作为参考答案" />
         </div>
       )}
+      <div className="mt-3">
+        <label className="label">解题过程 / 解析（课件来源或 AI 生成）</label>
+        <textarea className="input h-24 font-mono text-sm" value={q.solution || ""} onChange={(e) => onChange({ solution: e.target.value })} placeholder="可选" />
+      </div>
       {!q.answer && sol && <p className="mt-2 text-xs text-slate-500">AI 求解的答案：<span className="font-mono">{sol}</span>（未填写参考答案时用于评分）</p>}
       {choice && !q.answer && <p className="mt-2 text-xs text-amber-600">未设置正确选项：将使用 AI 求解的答案评分。</p>}
     </div>

@@ -12,7 +12,7 @@ export async function GET(_: Request, ctx: RouteContext<"/api/submissions/[sid]"
   const e = await getExam(s.examId);
   if (!e) return Response.json({ error: "试卷不存在" }, { status: 404 });
   if (!s.submittedAt) {
-    return Response.json({ submission: s, exam: { id: e.id, title: e.title, durationMin: e.durationMin, questions: e.questions.map(toPublic) } });
+    return Response.json({ submission: s, exam: { id: e.id, title: e.title, durationMin: e.durationMin, questions: e.questions.map((q) => toPublic(q)) } });
   }
   return Response.json({
     teacher: await isTeacher(),

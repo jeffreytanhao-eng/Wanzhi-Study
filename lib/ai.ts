@@ -82,9 +82,9 @@ const ParsedSchema = z.object({
       answer: z
         .string()
         .describe(
-          "试卷中能识别出的参考答案：单选如 B；多选如 AC；填空多个空用；分隔；解答题写参考答案要点。无法识别则为空字符串",
+          "参考答案：优先用试卷答案页；否则自行求解。单选如 B；多选如 AC；填空多个空用；分隔；解答题写参考答案要点。尽量不要留空",
         ),
-      score: z.number().describe("试卷中标注的分值；未标注则为 0"),
+      score: z.number().describe("试卷中标注的分值；未标注时选择题/填空 5、解答题 10"),
     }),
   ),
 });
@@ -98,10 +98,10 @@ export async function parseExam(files: FileInput[], text: string) {
       text: `你是一名经验丰富的中国中学/大学教师助手。请把下面上传的试卷（PDF/图片/文本）完整解析为结构化题目列表。
 要求：
 1. 按原试卷顺序提取每一道题，不遗漏、不合并；大题下的小题分别作为独立题目（题干中可保留必要的公共条件）。
-2. 判断题型：单选、多选、填空、解答/计算题。判断题当作单选，选项为「正确」「错误」。
+2. 判断题型：单选、多选、填空、解答/计算题。判断题当作单选，选项为「正确」「错误」。AMC/竞赛卷若只有 A–E 选项且题干未写出选项文字，options 填 ["A","B","C","D","E"]。
 3. ${MATH_RULE}
-4. 若试卷附带答案或答案页，填入 answer；否则留空，不要自己编造。
-5. 若题目标注分值（如“（5分）”），填入 score，否则为 0。
+4. 参考答案：若试卷附带答案/答案页（Answer Key），务必填入对应 answer；若没有，请你自行正确求解后填入（单选填字母如 B，多选如 AC，填空写最终结果，解答题写简明参考答案）。不要把 answer 留空。
+5. 若题目标注分值（如“（5分）”），填入 score；未标注时单选/多选/填空用 5，解答题用 10。
 6. 题干中的图形无法识别时，用文字简要描述“[图：……]”。`,
     },
   ];
@@ -114,6 +114,76 @@ export async function parseExam(files: FileInput[], text: string) {
     model: model(),
     output: Output.object({ schema: ParsedSchema }),
     messages: [{ role: "user", content }],
+  });
+  return output;
+}
+
+
+// ---------- 1b. Parse courseware Word / text (知识点 + 例题 + 分层习题) ----------
+const CoursewareSchema = z.object({
+  title: z.string().describe("课件标题，如「第03讲 三角函数的概念」"),
+  suggestedKind: z.enum(["exam", "courseware"]).describe("若内容明显是教学课件（含知识点/典例/题组）选 courseware；纯试卷选 exam"),
+  knowledgePoints: z.array(
+    z.object({
+      title: z.string().describe("知识点标题，如「知识点01 三角函数的定义」"),
+      content: z.string().describe("干净的知识点正文（含微点拨/考法说明），Markdown+LaTeX，去掉课标表格等无关版式"),
+    }),
+  ),
+  questions: z.array(
+    z.object({
+      role: z.enum(["example", "practice", "exercise"]).describe("example=典例, practice=即学即练, exercise=题组习题"),
+      difficulty: z.enum(["basic", "improve", "advanced", ""]).describe("题组A=basic, 题组B=improve, 培优/题组C=advanced；典例/即学即练可空"),
+      section: z.string().describe("所属小节，如「考法01」「题组A 基础过关练」；无则空串"),
+      type: z.enum(["single", "multiple", "fill", "short"]),
+      text: z.string().describe("题干（不含题号前缀、不含选项），填空用 ____"),
+      options: z.array(z.string()).describe("选项内容不含 A. 前缀；非选择题空数组"),
+      answer: z.string().describe("参考答案：单选字母、多选如 AC、填空结果、解答题要点"),
+      solution: z.string().describe("原课件中的【详解】/【解析】/【分析】整理成简洁步骤；没有则自行补简要过程"),
+      score: z.number().describe("建议分值：选择/填空5，解答10；课件习题同样给分便于转考试"),
+    }),
+  ),
+});
+
+export async function parseCourseware(text: string, titleHint = "") {
+  const clipped = text.length > 60000 ? text.slice(0, 60000) + "\n…(原文过长已截断)" : text;
+  const { output } = await generateText({
+    model: model(),
+    output: Output.object({ schema: CoursewareSchema }),
+    prompt: `你是中国高中/初中教研助手。下面是一份 Word 课件抽取的纯文本（已去掉奇怪格式）。请整理为结构化课件，只保留有用教学内容：
+1) 知识点（定义、符号规律、考法说明、微点拨等）
+2) 例题/典例（含答案与解题过程）
+3) 即学即练（含答案与过程）
+4) 分层习题：题组A基础过关→difficulty=basic；题组B能力提升→improve；培优拔尖/题组C→advanced（含答案与过程）
+
+硬性要求：
+- 不要保留课程标准表格、页眉页脚、版式噪声；公式用 LaTeX：$...$ / $$...$$。
+- 按原文顺序提取，不遗漏主要题目；图形用文字简述「[图：…]」。
+- 答案优先用原文【答案】；过程优先用【详解】/【解析】/【分析】，删掉空话，保留关键步骤。
+- suggestedKind：有「知识点/典例/题组」结构时选 courseware，否则 exam。
+- 标题优先用讲次标题；若无则用「${titleHint || "未命名课件"}」。
+- 选择题 options 不要带 A./B. 前缀；多选 type=multiple。
+
+课件文本：
+${clipped}`,
+  });
+  return output;
+}
+
+export async function parseExamFromText(text: string, titleHint = "") {
+  const clipped = text.length > 60000 ? text.slice(0, 60000) + "\n…(原文过长已截断)" : text;
+  const { output } = await generateText({
+    model: model(),
+    output: Output.object({ schema: ParsedSchema }),
+    prompt: `你是一名经验丰富的中国中学教师助手。请把下面试卷/习题文本解析为结构化题目列表（用于限时考试评分）。
+要求：
+1. 只提取可评分的题目（选择题、填空、解答），跳过纯知识点讲解段落。
+2. 按顺序提取，不遗漏；${MATH_RULE}
+3. 参考答案优先用文中【答案】；否则自行求解。
+4. 未标注分值时选择/填空 5、解答 10。
+5. 标题：若文本有讲次/试卷名则用，否则「${titleHint || "未命名试卷"}」。
+
+文本：
+${clipped}`,
   });
   return output;
 }
