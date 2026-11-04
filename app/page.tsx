@@ -116,7 +116,7 @@ export default function Home() {
         <div className="card flex flex-col">
           <div className="text-4xl">🧑‍🎓</div>
           <h2 className="mt-3 text-xl font-semibold">学生登录</h2>
-          <p className="mt-2 text-sm text-slate-500">输入学号登录；也可直接用 6 位码进考试/课件。</p>
+          <p className="mt-2 text-sm text-slate-500">先填写学号，再用密码登录，或填考试/课件码进入。</p>
           <form onSubmit={studentLogin} className="mt-1">
             <AccountPicker
               role="student"
@@ -140,21 +140,36 @@ export default function Home() {
             </button>
           </form>
           <form
-            className="mt-3 flex gap-2 border-t border-slate-100 pt-3"
+            className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3"
             onSubmit={(e) => {
               e.preventDefault();
-              if (code.trim()) router.push(`/s/${code.trim().toUpperCase()}`);
+              const sid = sUser.trim();
+              if (!sid) return;
+              if (code.trim()) {
+                router.push(`/s/${code.trim().toUpperCase()}?sid=${encodeURIComponent(sid)}`);
+              }
             }}
           >
-            <input
-              className="input uppercase tracking-widest"
-              placeholder="考试/课件码"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-            <button className="btn btn-ghost shrink-0" type="submit">
-              进入
-            </button>
+            <div className="flex gap-2">
+              <input
+                className="input uppercase tracking-widest disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                placeholder={sUser.trim() ? "考试/课件码" : "请先填写学号"}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                disabled={!sUser.trim()}
+                title={!sUser.trim() ? "请先填写学号" : undefined}
+              />
+              <button
+                className="btn btn-ghost shrink-0"
+                type="submit"
+                disabled={!sUser.trim() || !code.trim()}
+              >
+                进入
+              </button>
+            </div>
+            {!sUser.trim() && (
+              <p className="text-xs text-amber-600">请先填写学号，再输入考试/课件码</p>
+            )}
           </form>
         </div>
       </div>

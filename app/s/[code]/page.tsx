@@ -46,6 +46,14 @@ export default function Student({ params }: { params: Promise<{ code: string }> 
   const key = `exam-session:${code.toUpperCase()}`;
 
   useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const fromQuery = (q.get("sid") || q.get("name") || "").trim();
+      if (fromQuery) setName((prev) => prev || fromQuery);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     fetch(`/api/public/${code}`, { cache: "no-store" }).then(async (r) => {
       const j = await r.json();
       if (!r.ok) return setErr(j.error || "内容不存在");
@@ -122,8 +130,8 @@ export default function Student({ params }: { params: Promise<{ code: string }> 
               </>
             )}
           </div>
-          <label className="label mt-6">{isCw ? "你的姓名（可选）" : "请输入你的姓名"}</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：张三" autoFocus />
+          <label className="label mt-6">{isCw ? "学号/姓名（可选）" : "请输入学号或姓名"}</label>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="学号或姓名" autoFocus />
           {!isCw && <p className="mt-3 text-xs text-slate-500">点击开始后立即计时，时间到将自动交卷。</p>}
           {isCw && <p className="mt-3 text-xs text-slate-500">进入后可按知识点、典例、分层习题学习；{exam.showAnswersToStudents ? "老师已允许查看答案与解析。" : "答案默认隐藏，由老师控制是否显示。"}</p>}
           <button className="btn btn-green mt-4 w-full justify-center" disabled={!isCw && !name.trim()}>{isCw ? "开始学习" : "开始考试"}</button>
