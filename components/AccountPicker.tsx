@@ -12,15 +12,23 @@ type Props = {
   role: "teacher" | "student";
   value: string;
   onChange: (username: string) => void;
-  /** shown above the field */
   label: string;
   placeholder?: string;
   autoFocus?: boolean;
+  /** tighter spacing for homepage cards */
+  compact?: boolean;
 };
 
-export default function AccountPicker({ role, value, onChange, label, placeholder, autoFocus }: Props) {
+export default function AccountPicker({
+  role,
+  value,
+  onChange,
+  label,
+  placeholder,
+  autoFocus,
+  compact,
+}: Props) {
   const [items, setItems] = useState<AccountOption[]>([]);
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -49,10 +57,8 @@ export default function AccountPicker({ role, value, onChange, label, placeholde
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const selected = items.find((x) => x.username === value);
-
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = value.trim().toLowerCase();
     if (!q) return items.slice(0, 50);
     return items
       .filter((x) => {
@@ -60,47 +66,40 @@ export default function AccountPicker({ role, value, onChange, label, placeholde
         return blob.includes(q) || x.username.toLowerCase().startsWith(q) || x.displayName.toLowerCase().includes(q);
       })
       .slice(0, 50);
-  }, [items, query]);
+  }, [items, value]);
 
-  function pick(u: AccountOption) {
-    onChange(u.username);
-    setQuery("");
-    setOpen(false);
-  }
+  const exact = items.find((x) => x.username === value);
+  const hint =
+    exact &&
+    (role === "student"
+      ? `${exact.displayName}${exact.grade ? ` · ${exact.grade}` : ""}`
+      : `${exact.displayName}${exact.subjects?.length ? ` · ${exact.subjects.join("、")}` : ""}`);
 
   return (
     <div ref={wrapRef} className="relative">
-      <label className="label mt-4">{label}</label>
-      <button
-        type="button"
-        className="input flex w-full items-center justify-between text-left"
-        onClick={() => setOpen((v) => !v)}
+      <label className={`label ${compact ? "mt-2" : "mt-4"}`}>{label}</label>
+      <input
+        className="input"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value.trimStart());
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder || (role === "student" ? "输入或选择学号" : "输入或选择老师账号")}
         autoFocus={autoFocus}
-      >
-        <span className={selected ? "text-slate-900" : "text-slate-400"}>
-          {selected
-            ? role === "student"
-              ? `${selected.username} · ${selected.displayName}`
-              : `${selected.displayName}（${selected.username}）`
-            : placeholder || "请选择账号"}
-        </span>
-        <span className="text-slate-400">▾</span>
-      </button>
+        autoComplete="username"
+        spellCheck={false}
+      />
+      {hint && <p className="mt-1 text-xs text-slate-500">已匹配：{hint}</p>}
       {open && (
-        <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-          <div className="sticky top-0 border-b bg-white p-2">
-            <input
-              className="input"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={role === "student" ? "输入学号或姓名筛选" : "输入姓名或账号筛选"}
-              autoFocus
-            />
-          </div>
+        <div className="absolute z-30 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
           {!loaded ? (
             <p className="p-3 text-sm text-slate-400">加载中…</p>
           ) : filtered.length === 0 ? (
-            <p className="p-3 text-sm text-slate-400">没有匹配的账号</p>
+            <p className="p-3 text-sm text-slate-400">
+              {items.length === 0 ? "暂无可用账号，请先让校长建档" : "没有匹配，可继续输入完整账号"}
+            </p>
           ) : (
             <ul>
               {filtered.map((u) => (
@@ -110,11 +109,12 @@ export default function AccountPicker({ role, value, onChange, label, placeholde
                     className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
                       u.username === value ? "bg-blue-50 text-blue-700" : ""
                     }`}
-                    onClick={() => pick(u)}
+                    onClick={() => {
+                      onChange(u.username);
+                      setOpen(false);
+                    }}
                   >
-                    <div className="font-medium">
-                      {role === "student" ? u.username : u.displayName}
-                    </div>
+                    <div className="font-medium">{role === "student" ? u.username : u.displayName}</div>
                     <div className="text-xs text-slate-500">
                       {role === "student"
                         ? `${u.displayName}${u.grade ? ` · ${u.grade}` : ""}`

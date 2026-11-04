@@ -192,8 +192,8 @@ export default function Teacher() {
             role="teacher"
             value={username}
             onChange={setUsername}
-            label="选择老师账号"
-            placeholder="点击选择或搜索老师"
+            label="老师账号"
+            placeholder="输入姓名/账号，自动匹配"
             autoFocus
           />
           <label className="label mt-3">密码</label>

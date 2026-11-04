@@ -75,7 +75,7 @@ export default function StudentPage() {
             value={username}
             onChange={setUsername}
             label="学号"
-            placeholder="点击选择或搜索学号"
+            placeholder="输入或选择学号"
             autoFocus
           />
           <label className="label mt-3">密码</label>
